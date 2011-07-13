@@ -1,0 +1,97 @@
+diff --git a/src/Manos/Manos.Http/HttpEntity.cs b/src/Manos/Manos.Http/HttpEntity.cs
+index 5230efe..8f35b52 100644
+--- a/src/Manos/Manos.Http/HttpEntity.cs
++++ b/src/Manos/Manos.Http/HttpEntity.cs
+@@ -64,6 +64,7 @@ namespace Manos.Http {
+ 
+ 		private IHttpBodyHandler body_handler;
+ 		private bool finished_reading;
++		private bool Upgraded;
+ 
+ 		private IAsyncWatcher end_watcher;
+ 
+@@ -405,31 +406,40 @@ namespace Manos.Http {
+ 		}
+ 
+ 		private void OnBytesRead (ByteBuffer bytes)
+-		{
+-			try {
+-				parser.Execute (parser_settings, bytes);
+-			} catch (Exception e) {
+-				Console.WriteLine ("Exception while parsing");
+-				Console.WriteLine (e);
++		{	if (Upgraded)
++			{
++				if (OnUpgradeData != null) {
++					OnUpgradeData(bytes);
++				}
+ 			}
+-
+-			if (finished_reading && parser.Upgrade) {
+-
+-				//
+-				// Well, this is a bit of a hack.  Ideally, maybe there should be a putback list
+-				// on the socket so we can put these bytes back into the stream and the upgrade
+-				// protocol handler can read them out as if they were just reading normally.
+-				//
+-
+-				if (bytes.Position < bytes.Length) {
+-					byte [] upgrade_head = new byte [bytes.Length - bytes.Position];
+-					Array.Copy (bytes.Bytes, bytes.Position, upgrade_head, 0, upgrade_head.Length);
+-
+-					SetProperty ("UPGRADE_HEAD", upgrade_head);
++			else
++			{
++				try {
++					parser.Execute (parser_settings, bytes);
++				} catch (Exception e) {
++					Console.WriteLine ("Exception while parsing");
++					Console.WriteLine (e);
+ 				}
+ 
+-				// This is delayed until here with upgrade connnections.
+-				OnFinishedReading (parser);
++				if (finished_reading && parser.Upgrade) {
++					//
++					// Well, this is a bit of a hack.  Ideally, maybe there should be a putback list
++					// on the socket so we can put these bytes back into the stream and the upgrade
++					// protocol handler can read them out as if they were just reading normally.
++					//
++					int length = bytes.Length;
++					byte[] ret = new byte[length];
++					Array.Copy(bytes.Bytes, bytes.Position, ret, 0, bytes.Length);
++					SetProperty("UPGRADE_HEAD", ret);
++					Upgraded = true;
++					//if (bytes.Position < bytes.Length) {
++					//	byte [] upgrade_head = new byte [bytes.Length - bytes.Position];
++					//	Array.Copy (bytes.Bytes, bytes.Position, upgrade_head, 0, upgrade_head.Length);
++					//	SetProperty ("UPGRADE_HEAD", upgrade_head);
++					//}
++					// This is delayed until here with upgrade connnections.
++					OnFinishedReading (parser);
++				}
+ 			}
+ 		}
+ 
+@@ -584,6 +594,7 @@ namespace Manos.Http {
+ 
+ 		public event Action OnEnd;
+ 		public event Action OnCompleted;
++		public event Action<ByteBuffer> OnUpgradeData;
+ 	}
+ 
+ }
+diff --git a/src/manostool/BuildCommand.cs b/src/manostool/BuildCommand.cs
+index 768a888..6d84e9f 100644
+--- a/src/manostool/BuildCommand.cs
++++ b/src/manostool/BuildCommand.cs
+@@ -185,6 +185,9 @@ namespace Manos.Tool
+ 			string manosdll = Path.Combine (Environment.ManosDirectory, "Manos.dll");
+ 			libs.Add (manosdll);
+ 
++			string manosiodll = Path.Combine(Environment.ManosDirectory, "Manos.IO.dll");
++			libs.Add(manosiodll);
++
+ 			string ninidll = Path.Combine (Environment.ManosDirectory, "Nini.dll");
+ 			libs.Add (ninidll);
+ 		}
